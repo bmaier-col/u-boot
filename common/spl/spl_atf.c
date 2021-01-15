@@ -9,6 +9,8 @@
  * Copyright (C) 2017 Theobroma Systems Design und Consulting GmbH
  */
 
+#define DEBUG 1
+
 #include <common.h>
 #include <atf_common.h>
 #include <cpu_func.h>

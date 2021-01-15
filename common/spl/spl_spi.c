@@ -8,6 +8,8 @@
  * Heiko Schocher, DENX Software Engineering, hs@denx.de.
  */
 
+#define DEBUG 1
+
 #include <common.h>
 #include <image.h>
 #include <log.h>
@@ -89,6 +91,8 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 	 * taken from DT when available
 	 */
 
+	debug("probe spi\n");
+
 	flash = spi_flash_probe(CONFIG_SF_DEFAULT_BUS,
 				CONFIG_SF_DEFAULT_CS,
 				CONFIG_SF_DEFAULT_SPEED,
@@ -99,6 +103,7 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 	}
 
 	payload_offs = spl_spi_get_uboot_offs(flash);
+	debug("built-in payload at 0x%x\n", payload_offs);
 
 	header = spl_get_load_buffer(-sizeof(*header), sizeof(*header));
 
@@ -106,12 +111,15 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 	payload_offs = fdtdec_get_config_int(gd->fdt_blob,
 					     "u-boot,spl-payload-offset",
 					     payload_offs);
+	debug("fdt payload at 0x%x\n", payload_offs);
 #endif
 
 #ifdef CONFIG_SPL_OS_BOOT
 	if (spl_start_uboot() || spi_load_image_os(spl_image, flash, header))
 #endif
 	{
+		debug("read mkimage header\n");
+
 		/* Load u-boot, mkimage header is 64 bytes. */
 		err = spi_flash_read(flash, payload_offs, sizeof(*header),
 				     (void *)header);
@@ -123,6 +131,7 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 
 		if (IS_ENABLED(CONFIG_SPL_LOAD_FIT_FULL) &&
 		    image_get_magic(header) == FDT_MAGIC) {
+			debug("read full FIT\n");
 			err = spi_flash_read(flash, payload_offs,
 					     roundup(fdt_totalsize(header), 4),
 					     (void *)CONFIG_SYS_LOAD_ADDR);
@@ -140,6 +149,7 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 			load.filename = NULL;
 			load.bl_len = 1;
 			load.read = spl_spi_fit_read;
+			debug("read simple FIT\n");
 			err = spl_load_simple_fit(spl_image, &load,
 						  payload_offs,
 						  header);
@@ -152,18 +162,22 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 			load.bl_len = 1;
 			load.read = spl_spi_fit_read;
 
+			debug("read imx\n");
 			err = spl_load_imx_container(spl_image, &load,
 						     payload_offs);
 		} else {
+			debug("parse generic header\n");
 			err = spl_parse_image_header(spl_image, header);
 			if (err)
 				return err;
+			debug("read generic image\n");
 			err = spi_flash_read(flash, payload_offs,
 					     spl_image->size,
 					     (void *)spl_image->load_addr);
 		}
 	}
 
+	debug("load image finished, result=%d\n", err);
 	return err;
 }
 /* Use priorty 1 so that boards can override this */

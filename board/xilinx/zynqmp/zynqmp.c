@@ -4,6 +4,8 @@
  * Michal Simek <michal.simek@xilinx.com>
  */
 
+#define DEBUG 1
+
 #include <common.h>
 #include <command.h>
 #include <cpu_func.h>

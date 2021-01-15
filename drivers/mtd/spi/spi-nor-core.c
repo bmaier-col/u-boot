@@ -9,6 +9,8 @@
  * Synced from Linux v4.19
  */
 
+#define DEBUG 1
+
 #include <common.h>
 #include <log.h>
 #include <dm.h>
@@ -57,6 +59,8 @@ static int spi_nor_read_reg(struct spi_nor *nor, u8 code, u8 *val, int len)
 					  SPI_MEM_OP_DATA_IN(len, NULL, 1));
 	int ret;
 
+	debug("SPI NOR Read register\n");
+
 	ret = spi_nor_read_write_reg(nor, &op, val);
 	if (ret < 0)
 		dev_dbg(nor->dev, "error %d reading %x\n", ret, code);
@@ -70,6 +74,8 @@ static int spi_nor_write_reg(struct spi_nor *nor, u8 opcode, u8 *buf, int len)
 					  SPI_MEM_OP_NO_ADDR,
 					  SPI_MEM_OP_NO_DUMMY,
 					  SPI_MEM_OP_DATA_OUT(len, NULL, 1));
+
+	debug("SPI NOR Write register\n");
 
 	return spi_nor_read_write_reg(nor, &op, buf);
 }
@@ -85,6 +91,8 @@ static ssize_t spi_nor_read_data(struct spi_nor *nor, loff_t from, size_t len,
 	size_t remaining = len;
 	int ret;
 
+	debug("SPI NOR Read\n");
+
 	/* get transfer protocols. */
 	op.cmd.buswidth = spi_nor_get_protocol_inst_nbits(nor->read_proto);
 	op.addr.buswidth = spi_nor_get_protocol_addr_nbits(nor->read_proto);
@@ -93,6 +101,7 @@ static ssize_t spi_nor_read_data(struct spi_nor *nor, loff_t from, size_t len,
 
 	/* convert the dummy cycles to the number of bytes */
 	op.dummy.nbytes = (nor->read_dummy * op.dummy.buswidth) / 8;
+	debug("nbytes %u, read_dummy %u, buswidth %u\n", op.dummy.nbytes, nor->read_dummy, op.dummy.buswidth);
 
 	while (remaining) {
 		op.data.nbytes = remaining < UINT_MAX ? remaining : UINT_MAX;
@@ -121,6 +130,8 @@ static ssize_t spi_nor_write_data(struct spi_nor *nor, loff_t to, size_t len,
 				   SPI_MEM_OP_NO_DUMMY,
 				   SPI_MEM_OP_DATA_OUT(len, buf, 1));
 	int ret;
+
+	debug("SPI NOR Write\n");
 
 	/* get transfer protocols. */
 	op.cmd.buswidth = spi_nor_get_protocol_inst_nbits(nor->write_proto);
@@ -152,6 +163,8 @@ static int read_sr(struct spi_nor *nor)
 	int ret;
 	u8 val[2];
 
+	debug("Read status register\n");
+
 	if (nor->isparallel) {
 		ret = nor->read_reg(nor, SPINOR_OP_RDSR, &val[0], 2);
 		if (ret < 0) {
@@ -179,6 +192,8 @@ static int read_fsr(struct spi_nor *nor)
 {
 	int ret;
 	u8 val[2];
+
+	debug("Read flag Status register\n");
 
 	if (nor->isparallel) {
 		ret = nor->read_reg(nor, SPINOR_OP_RDFSR, &val[0], 2);
@@ -225,6 +240,7 @@ static int read_cr(struct spi_nor *nor)
  */
 static int write_sr(struct spi_nor *nor, u8 val)
 {
+	debug("Write status register 0x%02x\n", val);
 	nor->cmd_buf[0] = val;
 	return nor->write_reg(nor, SPINOR_OP_WRSR, nor->cmd_buf, 1);
 }
@@ -235,6 +251,7 @@ static int write_sr(struct spi_nor *nor, u8 val)
  */
 static int write_enable(struct spi_nor *nor)
 {
+	debug("Write enable\n");
 	return nor->write_reg(nor, SPINOR_OP_WREN, NULL, 0);
 }
 
@@ -243,6 +260,7 @@ static int write_enable(struct spi_nor *nor)
  */
 static int write_disable(struct spi_nor *nor)
 {
+	debug("Write disable\n");
 	return nor->write_reg(nor, SPINOR_OP_WRDI, NULL, 0);
 }
 
@@ -357,6 +375,7 @@ static int set_4byte(struct spi_nor *nor, const struct flash_info *info,
 			write_enable(nor);
 
 		cmd = enable ? SPINOR_OP_EN4B : SPINOR_OP_EX4B;
+		debug("%s 4-byte addressing\n", enable ? "Enable" : "Disable");
 		status = nor->write_reg(nor, cmd, NULL, 0);
 		if (need_wren)
 			write_disable(nor);
@@ -957,6 +976,8 @@ static const struct flash_info *spi_nor_read_id(struct spi_nor *nor)
 	u8			id[SPI_NOR_MAX_ID_LEN];
 	const struct flash_info	*info;
 
+	debug("SPI Read ID\n");
+
 	if (nor->isparallel)
 		nor->spi->flags |= SPI_XFER_LOWER;
 
@@ -969,8 +990,10 @@ static const struct flash_info *spi_nor_read_id(struct spi_nor *nor)
 	info = spi_nor_ids;
 	for (; info->name; info++) {
 		if (info->id_len) {
-			if (!memcmp(info->id, id, info->id_len))
+			if (!memcmp(info->id, id, info->id_len)) {
+				debug("Found flash chip %s\n", info->name);
 				return info;
+			}
 		}
 	}
 
@@ -994,7 +1017,7 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 	u8 nxt_bank;
 	u32 bank_size;
 
-	dev_dbg(nor->dev, "from 0x%08x, len %zd\n", (u32)from, len);
+	debug("SPI Read from address 0x%08x, len %lx\n", (u32)from, len);
 
 	if (nor->isparallel && (offset & 1)) {
 	    /* We can hit this case when we use file system like ubifs */
@@ -2262,6 +2285,7 @@ static int spi_nor_parse_sfdp(struct spi_nor *nor,
 	 * because we don't need to keep these parameter headers: the allocated
 	 * memory is always released with kfree() before exiting this function.
 	 */
+	debug("Reading parameter headers %u\n", header.nph);
 	if (header.nph) {
 		psize = header.nph * sizeof(*param_headers);
 
@@ -2345,6 +2369,9 @@ static int spi_nor_init_params(struct spi_nor *nor,
 			       const struct flash_info *info,
 			       struct spi_nor_flash_parameter *params)
 {
+
+	debug("Initializing param\n");
+
 	/* Set legacy flash parameters as default. */
 	memset(params, 0, sizeof(*params));
 
@@ -2435,12 +2462,16 @@ static int spi_nor_init_params(struct spi_nor *nor,
 
 		memcpy(&sfdp_params, params, sizeof(sfdp_params));
 		if (spi_nor_parse_sfdp(nor, &sfdp_params)) {
+			debug("SPI Parse SFDP error\n");
 			nor->addr_width = 0;
 			nor->mtd.erasesize = 0;
 		} else {
+			debug("SPI Parse SFDP good\n");
 			memcpy(params, &sfdp_params, sizeof(*params));
 		}
 	}
+
+	debug("Done\n");
 
 	return 0;
 }
@@ -2582,6 +2613,8 @@ static int spi_nor_setup(struct spi_nor *nor, const struct flash_info *info,
 	bool enable_quad_io;
 	int err;
 
+	debug("Setup\n");
+
 	/*
 	 * Keep only the hardware capabilities supported by both the SPI
 	 * controller and the SPI flash memory.
@@ -2632,12 +2665,16 @@ static int spi_nor_setup(struct spi_nor *nor, const struct flash_info *info,
 	else
 		nor->quad_enable = NULL;
 
+	debug("Done\n");
+
 	return 0;
 }
 
 static int spi_nor_init(struct spi_nor *nor)
 {
 	int err;
+
+	debug("Sending initialization commands\n");
 
 	/*
 	 * Atmel, SST, Intel/Numonyx, and others serial NOR tend to power up
@@ -2677,6 +2714,8 @@ static int spi_nor_init(struct spi_nor *nor)
 		set_4byte(nor, nor->info, 1);
 	}
 
+	debug("Done\n");
+
 	return 0;
 }
 
@@ -2692,6 +2731,8 @@ int spi_nor_scan(struct spi_nor *nor)
 	};
 	struct spi_slave *spi = nor->spi;
 	int ret;
+
+	debug("Start scan\n");
 
 	/* Reset SPI protocol for all commands. */
 	nor->reg_proto = SNOR_PROTO_1_1_1;
@@ -2802,24 +2843,32 @@ int spi_nor_scan(struct spi_nor *nor)
 
 	if (nor->addr_width) {
 		/* already configured from SFDP */
+		debug("addr width already configured\n");
 	} else if (info->addr_width) {
+		debug("Passing address width\n");
 		nor->addr_width = info->addr_width;
 	} else if (mtd->size > SZ_16M) {
 #ifndef CONFIG_SPI_FLASH_BAR
+		debug("Large size and not flash-bar\n");
 		/* enable 4-byte addressing if the device exceeds 16MiB */
 		nor->addr_width = 4;
 		if (JEDEC_MFR(info) == SNOR_MFR_SPANSION ||
 		    info->flags & SPI_NOR_4B_OPCODES)
 			spi_nor_set_4byte_opcodes(nor, info);
 #else
+	debug("large size and flash bar\n");
 	/* Configure the BAR - discover bank cmds and read current bank */
 	nor->addr_width = 3;
+	debug("Set 4 byte\n");
 	set_4byte(nor, info, 0);
+	debug("Read bar\n");
 	ret = read_bar(nor, info);
+	debug("Read bar done\n");
 	if (ret < 0)
 		return ret;
 #endif
 	} else {
+		debug("Width 3?\n");
 		nor->addr_width = 3;
 	}
 

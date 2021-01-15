@@ -239,7 +239,7 @@ static inline int _log_nop(enum log_category_t cat, enum log_level_t level,
 
 /* Show a message if DEBUG is defined in a file */
 #define debug(fmt, args...)			\
-	debug_cond(_DEBUG, fmt, ##args)
+	debug_cond(_DEBUG, "%s:%d %s() " fmt, __FILE__, __LINE__, __func__, ##args)
 
 /* Show a message if not in SPL */
 #define warn_non_spl(fmt, args...)			\

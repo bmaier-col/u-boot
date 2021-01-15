@@ -5,6 +5,8 @@
  * Xilinx ZynqMP Generic Quad-SPI(QSPI) controller driver(master mode only)
  */
 
+#define DEBUG 1
+
 #include <common.h>
 #include <cpu_func.h>
 #include <log.h>
@@ -324,6 +326,7 @@ static void zynqmp_qspi_fill_gen_fifo(struct zynqmp_qspi_priv *priv,
 	if (ret)
 		printf("%s Timeout\n", __func__);
 
+	debug("gfifo: %08x\n", gqspi_fifo_reg);
 	writel(gqspi_fifo_reg, &regs->genfifo);
 }
 
@@ -346,7 +349,7 @@ static void zynqmp_qspi_chipselect(struct zynqmp_qspi_priv *priv, int is_on)
 		gqspi_fifo_reg |= GQSPI_IMD_DATA_CS_DEASSERT;
 	}
 
-	debug("GFIFO_CMD_CS: 0x%x\n", gqspi_fifo_reg);
+	//debug("GFIFO_CMD_CS: 0x%x\n", gqspi_fifo_reg);
 
 	/* Dummy generic FIFO entry */
 	zynqmp_qspi_fill_gen_fifo(priv, 0);
@@ -609,7 +612,7 @@ static void zynqmp_qspi_genfifo_cmd(struct zynqmp_qspi_priv *priv)
 		gen_fifo_cmd |= GQSPI_GFIFO_TX;
 		gen_fifo_cmd |= addr;
 
-		debug("GFIFO_CMD_Cmd = 0x%x\n", gen_fifo_cmd);
+		//debug("GFIFO_CMD_Cmd = 0x%x\n", gen_fifo_cmd);
 
 		zynqmp_qspi_fill_gen_fifo(priv, gen_fifo_cmd);
 	}
@@ -672,7 +675,7 @@ static int zynqmp_qspi_genfifo_fill_tx(struct zynqmp_qspi_priv *priv)
 		len = zynqmp_qspi_calc_exp(priv, &gen_fifo_cmd);
 		zynqmp_qspi_fill_gen_fifo(priv, gen_fifo_cmd);
 
-		debug("GFIFO_CMD_TX:0x%x\n", gen_fifo_cmd);
+		//debug("GFIFO_CMD_TX:0x%x\n", gen_fifo_cmd);
 
 		if (gen_fifo_cmd & GQSPI_GFIFO_EXP_MASK)
 			ret = zynqmp_qspi_fill_tx_fifo(priv,
@@ -706,7 +709,7 @@ static int zynqmp_qspi_start_io(struct zynqmp_qspi_priv *priv,
 		else
 			priv->bytes_to_receive = len;
 		zynqmp_qspi_fill_gen_fifo(priv, gen_fifo_cmd);
-		debug("GFIFO_CMD_RX:0x%x\n", gen_fifo_cmd);
+		//debug("GFIFO_CMD_RX:0x%x\n", gen_fifo_cmd);
 		/* Manual start */
 		config_reg = readl(&regs->confr);
 		config_reg |= GQSPI_STRT_GEN_FIFO;
@@ -767,7 +770,7 @@ static int zynqmp_qspi_start_dma(struct zynqmp_qspi_priv *priv,
 		zynqmp_qspi_calc_exp(priv, &gen_fifo_cmd);
 		zynqmp_qspi_fill_gen_fifo(priv, gen_fifo_cmd);
 
-		debug("GFIFO_CMD_RX:0x%x\n", gen_fifo_cmd);
+		//debug("GFIFO_CMD_RX:0x%x\n", gen_fifo_cmd);
 	}
 
 	ret = wait_for_bit_le32(&dma_regs->dmaisr, GQSPI_DMA_DST_I_STS_DONE,
@@ -850,6 +853,22 @@ static int zynqmp_qspi_exec_op(struct spi_slave *slave,
 	struct zynqmp_qspi_priv *priv = dev_get_priv(slave->dev->parent);
 	int ret = 0;
 
+	debug("priv == %p\n", priv);
+
+	debug("SPI-MEM transfer, type %s, upper %u, lower %u, stripe %u, is_dual %u, io_mode %u\n",
+			op->data.dir == SPI_MEM_DATA_IN ? "read" : "write",
+			!!(slave->flags & SPI_XFER_UPPER),
+			!!(slave->flags & SPI_XFER_LOWER),
+			!!(slave->flags & SPI_XFER_STRIPE),
+			priv->is_dual,
+			priv->io_mode);
+
+	debug("SPI-MEM cmd, buswidth %u, opcode %02x\n", op->cmd.buswidth, op->cmd.opcode);
+	debug("SPI-MEM addr, buswidth %u, nbytes %u, val0 %08x, val1 %08x\n", op->addr.buswidth, op->addr.nbytes,
+			((u32 *)&op->addr.val)[0], ((u32 *)&op->addr.val)[1]);
+	debug("SPI-MEM dummy, buswidth %u, nbytes %u\n", op->dummy.buswidth, op->dummy.nbytes);
+	debug("SPI-MEM data, buswidth %u, nbytes %u, dir %s\n", op->data.buswidth, op->data.nbytes, op->data.dir == SPI_MEM_DATA_IN ? "read" : "write");
+
 	priv->op = op;
 	priv->tx_buf = op->data.buf.out;
 	priv->rx_buf = op->data.buf.in;
@@ -876,10 +895,23 @@ static int zynqmp_qspi_exec_op(struct spi_slave *slave,
 	zynqmp_qspi_genfifo_cmd(priv);
 
 	/* Request the transfer */
-	if (op->data.dir == SPI_MEM_DATA_IN)
+	if (op->data.dir == SPI_MEM_DATA_IN) {
 		ret = zynqmp_qspi_genfifo_fill_rx(priv);
-	else if (op->data.dir == SPI_MEM_DATA_OUT)
+
+		unsigned int i;
+		for (i = 0; i < op->data.nbytes && i < 8; i++)
+			debug("rx %u: %02x\n", i, ((char *)op->data.buf.in)[i]);
+		if (i < op->data.nbytes)
+			debug("rx ...\n");
+	} else if (op->data.dir == SPI_MEM_DATA_OUT) {
+		unsigned int i;
+		for (i = 0; i < op->data.nbytes && i < 8; i++)
+			debug("tx %u: %02x\n", i, ((char *)op->data.buf.out)[i]);
+		if (i < op->data.nbytes)
+			debug("tx ...\n");
+
 		ret = zynqmp_qspi_genfifo_fill_tx(priv);
+	}
 
 	zynqmp_qspi_chipselect(priv, 0);
 
