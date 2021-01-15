@@ -264,6 +264,7 @@ int spi_mem_exec_op(struct spi_slave *slave, const struct spi_mem_op *op)
 		 * interface in other cases.
 		 */
 		if (!ret || ret != -ENOTSUPP) {
+			slave->flags &= ~SPI_XFER_MASK;
 			spi_release_bus(slave);
 			return ret;
 		}
