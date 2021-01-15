@@ -1759,7 +1759,7 @@ static int spi_nor_read_sfdp(struct spi_nor *nor, u32 addr,
 	nor->read_dummy = 8;
 
 	if (nor->isparallel)
-		nor->spi->flags |= SPI_XFER_STRIPE;
+		nor->spi->flags |= SPI_XFER_LOWER;
 
 	while (len) {
 		ret = nor->read(nor, addr, len, (u8 *)buf);
